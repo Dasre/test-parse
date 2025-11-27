@@ -1,0 +1,8 @@
+apiconfig:
+  routes:
+    - path: /api/users
+      handler: getUsersHandler
+    - path: /api/posts
+      method: INVALID_METHOD
+      handler: getPostsHandler
+  timeout: 50000

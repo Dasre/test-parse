@@ -1,0 +1,9 @@
+apiconfig:
+  routes:
+    - path: /api/users
+      method: GET
+      handler: getUsersHandler
+    - path: /api/users/:id
+      method: POST
+      handler: createUserHandler
+  timeout: 5000

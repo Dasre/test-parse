@@ -1,0 +1,14 @@
+id: api-002
+name: "Routes 必須是陣列"
+enabled: true
+severity: error
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: field_type
+  path: "apiconfig.routes"
+  expected_type: array
+  message: "routes 必須是陣列格式"

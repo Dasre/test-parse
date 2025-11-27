@@ -1,0 +1,22 @@
+id: api-003
+name: "HTTP Method 驗證"
+enabled: true
+severity: error
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: array_item_field
+  path: "apiconfig.routes"
+  field: "method"
+  validation:
+    type: enum
+    allowed_values:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - PATCH
+  message: "method 必須是合法的 HTTP 動詞"

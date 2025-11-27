@@ -1,0 +1,17 @@
+id: api-004
+name: "Route 必要欄位"
+enabled: true
+severity: error
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: array_item_required_fields
+  path: "apiconfig.routes"
+  required_fields:
+    - path
+    - method
+    - handler
+  message: "每個 route 必須包含 path, method, handler"

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go mod init:*)",
+      "Bash(mkdir:*)",
+      "Bash(go get:*)",
+      "Bash(go build:*)",
+      "Bash(./validator:*)",
+      "Bash(tree:*)",
+      "Bash(chmod:*)",
+      "Bash(/tmp/validate-project.sh)",
+      "Bash(echo:*)",
+      "Bash([ -f validator ])"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

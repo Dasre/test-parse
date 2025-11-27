@@ -1,0 +1,15 @@
+id: api-005
+name: "Timeout 範圍檢查"
+enabled: true
+severity: warning
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: value_range
+  path: "apiconfig.timeout"
+  min: 1000
+  max: 30000
+  message: "timeout 應在 1000-30000 ms 之間"

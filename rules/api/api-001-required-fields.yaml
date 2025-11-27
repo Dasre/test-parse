@@ -1,0 +1,15 @@
+id: api-001
+name: "API Config 必要欄位檢查"
+enabled: true
+severity: error
+description: "確保 apiconfig 區塊存在"
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+    - "**/routes*.yaml"
+
+rule:
+  type: required_field
+  path: "apiconfig"
+  message: "缺少 apiconfig 區塊"

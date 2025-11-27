@@ -1,0 +1,35 @@
+# 產品與規則目錄映射配置
+# 根據配置檔路徑模式自動選擇對應產品的驗證規則
+
+products:
+  - name: api
+    description: "API 配置驗證"
+    rules_dir: rules/api
+    path_patterns:
+      - "**/api/**/*.yaml"
+      - "**/api/**/*.yml"
+      - "**/api*.yaml"
+      - "**/api*.yml"
+      - "**/routes*.yaml"
+      - "**/routes*.yml"
+
+  - name: database
+    description: "資料庫配置驗證"
+    rules_dir: rules/database
+    path_patterns:
+      - "**/db/**/*.yaml"
+      - "**/db/**/*.yml"
+      - "**/database/**/*.yaml"
+      - "**/database/**/*.yml"
+      - "**/db*.yaml"
+      - "**/db*.yml"
+      - "**/database*.yaml"
+      - "**/database*.yml"
+
+# 新增產品範例：
+#  - name: frontend
+#    description: "前端配置驗證"
+#    rules_dir: rules/frontend
+#    path_patterns:
+#      - "**/frontend/**/*.yaml"
+#      - "**/theme*.yaml"

@@ -1,0 +1,19 @@
+id: db-001
+name: "Database 必要欄位"
+enabled: true
+severity: error
+
+targets:
+  file_patterns:
+    - "**/db*.yaml"
+    - "**/database*.yaml"
+
+rule:
+  type: required_fields
+  path: "database"
+  fields:
+    - host
+    - port
+    - username
+    - database
+  message: "database 缺少必要欄位"

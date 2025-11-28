@@ -10,7 +10,8 @@
       "Bash(chmod:*)",
       "Bash(/tmp/validate-project.sh)",
       "Bash(echo:*)",
-      "Bash([ -f validator ])"
+      "Bash([ -f validator ])",
+      "Bash(go run:*)"
     ],
     "deny": [],
     "ask": []

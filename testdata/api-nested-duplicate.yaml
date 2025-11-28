@@ -1,0 +1,35 @@
+# 測試巢狀陣列重複檢查
+apiconfig:
+  routes:
+    - path: /api/users
+      method: GET
+      handler: getUsersHandler
+      middlewares:
+        - name: auth
+          priority: 1
+        - name: logging
+          priority: 2
+        - name: auth      # ❌ 重複！在同一個 route 中
+          priority: 3
+
+    - path: /api/posts
+      method: GET
+      handler: getPostsHandler
+      middlewares:
+        - name: auth      # ✓ 這個 auth 沒問題，因為是在不同 route
+          priority: 1
+        - name: cache
+          priority: 2
+        - name: cache     # ❌ 重複！
+          priority: 3
+
+    - path: /api/comments
+      method: GET
+      handler: getCommentsHandler
+      middlewares:
+        - name: auth
+          priority: 1
+        - name: logging
+          priority: 2     # ✓ 沒有重複
+
+  timeout: 5000

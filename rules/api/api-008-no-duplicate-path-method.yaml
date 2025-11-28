@@ -1,0 +1,16 @@
+id: api-008
+name: "Route path+method 組合不可重複"
+enabled: true
+severity: error
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: array_no_duplicates_combine
+  path: "apiconfig.routes"
+  fields:
+    - path
+    - method
+  message: "routes 中的 path+method 組合不可重複"

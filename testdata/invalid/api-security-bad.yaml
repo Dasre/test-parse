@@ -1,0 +1,16 @@
+apiconfig:
+  routes:
+    - path: /api/users
+      method: GET
+      handler: getUsersHandler
+    - path: /api/internal/debug  # ❌ 包含敏感關鍵字 "internal" 和 "debug"
+      method: POST
+      handler: " debugHandler "    # ❌ handler 前後有空白
+    - path: /api/admin/secret     # ❌ 包含敏感關鍵字 "admin" 和 "secret"
+      method: DELETE
+      handler: deleteSecretHandler
+  timeout: 5000
+
+admin:
+  username: admin
+  password: admin123  # ❌ 弱密碼（SHA256 在禁用列表中）

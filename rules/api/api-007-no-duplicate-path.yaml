@@ -1,0 +1,14 @@
+id: api-007
+name: "Route path 不可重複"
+enabled: true
+severity: error
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: array_no_duplicates
+  path: "apiconfig.routes"
+  field: "path"
+  message: "routes 中的 path 欄位不可重複"

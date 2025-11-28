@@ -1,0 +1,13 @@
+id: api-013
+name: "欄位前後不可有空白"
+enabled: true
+severity: warning
+description: "自動檢查整個配置檔中所有字串欄位前後是否有多餘的空白字元"
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: no_trailing_whitespace
+  message: "配置檔中的字串欄位前後不可有空白字元"

@@ -1,0 +1,17 @@
+apiconfig:
+  routes:
+    - path: "/api/users "     # ❌ 結尾有空白
+      method: GET
+      handler: getUsersHandler
+    - path: /api/posts
+      method: POST
+      handler: " createPostHandler"  # ❌ 開頭有空白
+    - path: " /api/comments "  # ❌ 開頭和結尾都有空白
+      method: DELETE
+      handler: deleteCommentHandler
+  timeout: 5000
+  description: "	API Configuration	"  # ❌ 開頭和結尾有 Tab
+
+admin:
+  username: "admin "          # ❌ 結尾有空白
+  password: MyStrongPassword

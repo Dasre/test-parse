@@ -1,0 +1,13 @@
+apiconfig:
+  routes:
+    - path: /api/users
+      method: GET
+      handler: getUsersHandler
+    - path: /api/posts
+      method: POST
+      handler: createPostHandler
+  timeout: 5000
+
+admin:
+  username: admin
+  password: MyStr0ngP@ssw0rd!2024  # 強密碼，SHA256 不在弱密碼列表中

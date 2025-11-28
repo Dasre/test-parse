@@ -1,0 +1,23 @@
+id: api-012
+name: "敏感關鍵字檢查"
+enabled: true
+severity: warning
+description: "檢查 API 路徑是否包含敏感關鍵字"
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: contains_keywords
+  path: "apiconfig.routes[*].path"
+  mode: "forbidden"
+  case_sensitive: false
+  keywords:
+    - "internal"
+    - "private"
+    - "admin"
+    - "debug"
+    - "test"
+    - "secret"
+  message: "API 路徑不應包含敏感關鍵字"

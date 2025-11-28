@@ -1,0 +1,16 @@
+id: api-010
+name: "Middleware 必要欄位"
+enabled: true
+severity: error
+
+targets:
+  file_patterns:
+    - "**/api*.yaml"
+
+rule:
+  type: array_item_required_fields
+  path: "apiconfig.routes[*].middlewares"
+  required_fields:
+    - name
+    - priority
+  message: "每個 middleware 必須包含 name 和 priority 欄位"

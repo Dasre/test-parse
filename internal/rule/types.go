@@ -13,21 +13,18 @@ const (
 type RuleType string
 
 const (
-	RuleTypeRequiredField                 RuleType = "required_field"
-	RuleTypeRequiredFields                RuleType = "required_fields"
-	RuleTypeFieldType                     RuleType = "field_type"
-	RuleTypeValueRange                    RuleType = "value_range"
-	RuleTypeArrayItemRequiredFields       RuleType = "array_item_required_fields"
-	RuleTypeArrayItemField                RuleType = "array_item_field"
-	RuleTypePatternMatch                  RuleType = "pattern_match"
-	RuleTypeArrayNoDuplicates             RuleType = "array_no_duplicates"
-	RuleTypeArrayNoDuplicatesCombine      RuleType = "array_no_duplicates_combine"
-	RuleTypeNestedArrayNoDuplicates       RuleType = "nested_array_no_duplicates"
-	RuleTypeNestedArrayItemRequiredFields RuleType = "nested_array_item_required_fields"
-	RuleTypeNestedArrayItemField          RuleType = "nested_array_item_field"
-	RuleTypeHashedValueCheck              RuleType = "hashed_value_check"
-	RuleTypeContainsKeywords              RuleType = "contains_keywords"
-	RuleTypeNoTrailingWhitespace          RuleType = "no_trailing_whitespace"
+	RuleTypeRequiredField            RuleType = "required_field"
+	RuleTypeRequiredFields           RuleType = "required_fields"
+	RuleTypeFieldType                RuleType = "field_type"
+	RuleTypeValueRange               RuleType = "value_range"
+	RuleTypeArrayItemRequiredFields  RuleType = "array_item_required_fields"
+	RuleTypeArrayItemField           RuleType = "array_item_field"
+	RuleTypePatternMatch             RuleType = "pattern_match"
+	RuleTypeArrayNoDuplicates        RuleType = "array_no_duplicates"
+	RuleTypeArrayNoDuplicatesCombine RuleType = "array_no_duplicates_combine"
+	RuleTypeHashedValueCheck         RuleType = "hashed_value_check"
+	RuleTypeContainsKeywords         RuleType = "contains_keywords"
+	RuleTypeNoTrailingWhitespace     RuleType = "no_trailing_whitespace"
 )
 
 // FieldType 定義欄位類型
@@ -133,38 +130,6 @@ type ArrayNoDuplicatesCombineRule struct {
 	Message string   `yaml:"message"`
 }
 
-// NestedArrayNoDuplicatesRule 巢狀陣列欄位不可重複規則
-// 用於檢查父陣列中每個項目的子陣列是否有重複
-// 例如: 檢查 routes[*].middlewares 中的 name 是否重複
-type NestedArrayNoDuplicatesRule struct {
-	ParentPath string   `yaml:"parent_path"` // 父陣列路徑，如 "apiconfig.routes"
-	ChildPath  string   `yaml:"child_path"`  // 子陣列欄位名稱，如 "middlewares"
-	Field      string   `yaml:"field"`       // 要檢查的欄位，如 "name"
-	Fields     []string `yaml:"fields"`      // 或多個欄位組合
-	Message    string   `yaml:"message"`
-}
-
-// NestedArrayItemRequiredFieldsRule 巢狀陣列項目必要欄位規則
-// 用於檢查父陣列中每個項目的子陣列項目是否有必要欄位
-// 例如: 檢查所有 routes[*].middlewares[*] 是否都有 name 和 priority 欄位
-type NestedArrayItemRequiredFieldsRule struct {
-	ParentPath     string   `yaml:"parent_path"`     // 父陣列路徑，如 "apiconfig.routes"
-	ChildPath      string   `yaml:"child_path"`      // 子陣列欄位名稱，如 "middlewares"
-	RequiredFields []string `yaml:"required_fields"` // 必要欄位列表
-	Message        string   `yaml:"message"`
-}
-
-// NestedArrayItemFieldRule 巢狀陣列項目欄位驗證規則
-// 用於驗證父陣列中每個項目的子陣列項目的欄位值
-// 例如: 檢查所有 routes[*].middlewares[*].priority 是否在合理範圍內
-type NestedArrayItemFieldRule struct {
-	ParentPath string     `yaml:"parent_path"` // 父陣列路徑，如 "apiconfig.routes"
-	ChildPath  string     `yaml:"child_path"`  // 子陣列欄位名稱，如 "middlewares"
-	Field      string     `yaml:"field"`       // 要驗證的欄位，如 "priority"
-	Validation Validation `yaml:"validation"`  // 驗證規則
-	Message    string     `yaml:"message"`
-}
-
 // HashedValueCheckRule SHA 雜湊值檢查規則
 type HashedValueCheckRule struct {
 	Path          string   `yaml:"path"`
@@ -191,10 +156,12 @@ type NoTrailingWhitespaceRule struct {
 
 // ValidationResult 驗證結果
 type ValidationResult struct {
-	File     string   `json:"file"`
-	RuleID   string   `json:"rule_id"`
-	RuleName string   `json:"rule_name"`
-	Severity Severity `json:"severity"`
-	Message  string   `json:"message"`
-	Path     string   `json:"path"`
+	File          string   `json:"file"`
+	RuleID        string   `json:"rule_id"`
+	RuleName      string   `json:"rule_name"`
+	Severity      Severity `json:"severity"`
+	Message       string   `json:"message"`
+	Path          string   `json:"path"`
+	ActualValue   string   `json:"actual_value,omitempty"`   // 實際值
+	ExpectedValue string   `json:"expected_value,omitempty"` // 期望值
 }

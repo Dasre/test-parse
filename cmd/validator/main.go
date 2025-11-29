@@ -18,16 +18,16 @@ func main() {
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "用法: validator <path1> [path2] [path3] ... [--json]")
+		fmt.Fprintln(os.Stderr, "用法: validator [--json] <path1> [path2] [path3] ...")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "參數說明:")
-		fmt.Fprintln(os.Stderr, "  <path>  配置檔或目錄路徑（可指定多個）")
-		fmt.Fprintln(os.Stderr, "  --json  輸出 JSON 格式")
+		fmt.Fprintln(os.Stderr, "  <path>   配置檔或目錄路徑（可指定多個）")
+		fmt.Fprintln(os.Stderr, "  --json   輸出 JSON 格式")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "範例:")
 		fmt.Fprintln(os.Stderr, "  validator configs/")
 		fmt.Fprintln(os.Stderr, "  validator configs/api.yaml configs/db.yaml")
-		fmt.Fprintln(os.Stderr, "  validator testdata/valid testdata/invalid --json")
+		fmt.Fprintln(os.Stderr, "  validator --json testdata/")
 		os.Exit(1)
 	}
 
@@ -87,8 +87,8 @@ func main() {
 	// 建立輸出器
 	rep := reporter.NewReporter()
 
-	// 統計資訊
-	productRulesCount := make(map[string]int)
+	// 規則緩存和統計資訊
+	productRules := make(map[string][]*rule.ValidationRule)
 	totalRulesCount := 0
 
 	// 驗證每個配置檔
@@ -100,8 +100,9 @@ func main() {
 			continue
 		}
 
-		// 如果是第一次處理此產品，載入規則
-		if _, exists := productRulesCount[prod.Name]; !exists {
+		// 如果是第一次處理此產品，載入規則並緩存
+		rules, exists := productRules[prod.Name]
+		if !exists {
 			// 決定規則目錄（Docker 環境使用絕對路徑，本地使用相對路徑）
 			rulesDir := "/" + prod.RulesDir
 			if _, err := os.Stat(rulesDir); os.IsNotExist(err) {
@@ -110,38 +111,22 @@ func main() {
 
 			// 載入該產品的規則
 			loader := rule.NewLoader(rulesDir)
-			rules, err := loader.LoadRules()
+			var err error
+			rules, err = loader.LoadRules()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "載入產品 %s 的規則失敗: %v\n", prod.Name, err)
 				os.Exit(1)
 			}
 
-			productRulesCount[prod.Name] = len(rules)
+			// 緩存規則
+			productRules[prod.Name] = rules
 			totalRulesCount += len(rules)
+		}
 
-			// 驗證配置檔
-			if err := validateFile(configFile, rules, rep); err != nil {
-				fmt.Fprintf(os.Stderr, "驗證檔案 %s 失敗: %v\n", configFile, err)
-				os.Exit(1)
-			}
-		} else {
-			// 已經載入過該產品的規則，直接驗證
-			rulesDir := "/" + prod.RulesDir
-			if _, err := os.Stat(rulesDir); os.IsNotExist(err) {
-				rulesDir = "./" + prod.RulesDir
-			}
-
-			loader := rule.NewLoader(rulesDir)
-			rules, err := loader.LoadRules()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "載入產品 %s 的規則失敗: %v\n", prod.Name, err)
-				os.Exit(1)
-			}
-
-			if err := validateFile(configFile, rules, rep); err != nil {
-				fmt.Fprintf(os.Stderr, "驗證檔案 %s 失敗: %v\n", configFile, err)
-				os.Exit(1)
-			}
+		// 驗證配置檔（使用緩存的規則）
+		if err := validateFile(configFile, rules, rep); err != nil {
+			fmt.Fprintf(os.Stderr, "驗證檔案 %s 失敗: %v\n", configFile, err)
+			os.Exit(1)
 		}
 	}
 
@@ -153,10 +138,10 @@ func main() {
 		}
 	} else {
 		// 顯示載入的產品規則統計
-		if len(productRulesCount) > 0 {
-			fmt.Printf("📋 載入了 %d 個產品的規則：\n", len(productRulesCount))
-			for prodName, count := range productRulesCount {
-				fmt.Printf("   • %s: %d 條規則\n", prodName, count)
+		if len(productRules) > 0 {
+			fmt.Printf("📋 載入了 %d 個產品的規則：\n", len(productRules))
+			for prodName, rules := range productRules {
+				fmt.Printf("   • %s: %d 條規則\n", prodName, len(rules))
 			}
 			fmt.Println()
 		}

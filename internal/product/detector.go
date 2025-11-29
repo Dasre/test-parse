@@ -49,21 +49,6 @@ func (d *Detector) DetectProduct(filePath string) *ProductConfig {
 	return nil
 }
 
-// GetAllProducts 獲取所有產品配置
-func (d *Detector) GetAllProducts() []ProductConfig {
-	return d.products
-}
-
-// GetProductByName 根據名稱獲取產品配置
-func (d *Detector) GetProductByName(name string) *ProductConfig {
-	for _, product := range d.products {
-		if product.Name == name {
-			return &product
-		}
-	}
-	return nil
-}
-
 // matchPattern 簡單的模式匹配
 // 支援 **/ 和 * 通配符
 func matchPattern(path, pattern string) bool {

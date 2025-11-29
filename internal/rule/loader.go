@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -112,6 +113,286 @@ func (l *Loader) validateRule(rule *ValidationRule) error {
 		return fmt.Errorf("規則 %s 缺少 rule.type", rule.ID)
 	}
 
+	// 驗證規則類型的詳細配置
+	if err := l.validateRuleDetails(rule); err != nil {
+		return fmt.Errorf("規則 %s 配置錯誤: %w", rule.ID, err)
+	}
+
+	return nil
+}
+
+// validateRuleDetails 驗證規則類型的詳細配置
+func (l *Loader) validateRuleDetails(rule *ValidationRule) error {
+	switch rule.Rule.Type {
+	case RuleTypeRequiredField:
+		return validateRequiredFieldRule(rule.Rule.RawRule)
+	case RuleTypeRequiredFields:
+		return validateRequiredFieldsRule(rule.Rule.RawRule)
+	case RuleTypeFieldType:
+		return validateFieldTypeRule(rule.Rule.RawRule)
+	case RuleTypeValueRange:
+		return validateValueRangeRule(rule.Rule.RawRule)
+	case RuleTypeArrayItemRequiredFields:
+		return validateArrayItemRequiredFieldsRule(rule.Rule.RawRule)
+	case RuleTypeArrayItemField:
+		return validateArrayItemFieldRule(rule.Rule.RawRule)
+	case RuleTypePatternMatch:
+		return validatePatternMatchRule(rule.Rule.RawRule)
+	case RuleTypeArrayNoDuplicates:
+		return validateArrayNoDuplicatesRule(rule.Rule.RawRule)
+	case RuleTypeArrayNoDuplicatesCombine:
+		return validateArrayNoDuplicatesCombineRule(rule.Rule.RawRule)
+	case RuleTypeHashedValueCheck:
+		return validateHashedValueCheckRule(rule.Rule.RawRule)
+	case RuleTypeContainsKeywords:
+		return validateContainsKeywordsRule(rule.Rule.RawRule)
+	case RuleTypeNoTrailingWhitespace:
+		return validateNoTrailingWhitespaceRule(rule.Rule.RawRule)
+	default:
+		return fmt.Errorf("不支援的規則類型: %s", rule.Rule.Type)
+	}
+}
+
+// validateRequiredFieldRule 驗證 required_field 規則
+func validateRequiredFieldRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("required_field 規則必須包含 path 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("required_field 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateRequiredFieldsRule 驗證 required_fields 規則
+func validateRequiredFieldsRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("required_fields 規則必須包含 path 欄位")
+	}
+	fields, ok := rawRule["fields"].([]interface{})
+	if !ok || len(fields) == 0 {
+		return fmt.Errorf("required_fields 規則必須包含非空的 fields 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("required_fields 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateFieldTypeRule 驗證 field_type 規則
+func validateFieldTypeRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("field_type 規則必須包含 path 欄位")
+	}
+	expectedType, ok := rawRule["expected_type"].(string)
+	if !ok || expectedType == "" {
+		return fmt.Errorf("field_type 規則必須包含 expected_type 欄位")
+	}
+	// 驗證 expected_type 是否合法
+	validTypes := []string{"string", "number", "boolean", "array", "object"}
+	valid := false
+	for _, t := range validTypes {
+		if expectedType == t {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("expected_type 必須是以下之一: %v", validTypes)
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("field_type 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateValueRangeRule 驗證 value_range 規則
+func validateValueRangeRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("value_range 規則必須包含 path 欄位")
+	}
+	_, hasMin := rawRule["min"]
+	_, hasMax := rawRule["max"]
+	if !hasMin || !hasMax {
+		return fmt.Errorf("value_range 規則必須包含 min 和 max 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("value_range 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateArrayItemRequiredFieldsRule 驗證 array_item_required_fields 規則
+func validateArrayItemRequiredFieldsRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("array_item_required_fields 規則必須包含 path 欄位")
+	}
+	fields, ok := rawRule["required_fields"].([]interface{})
+	if !ok || len(fields) == 0 {
+		return fmt.Errorf("array_item_required_fields 規則必須包含非空的 required_fields 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("array_item_required_fields 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateArrayItemFieldRule 驗證 array_item_field 規則
+func validateArrayItemFieldRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("array_item_field 規則必須包含 path 欄位")
+	}
+	field, ok := rawRule["field"].(string)
+	if !ok || field == "" {
+		return fmt.Errorf("array_item_field 規則必須包含 field 欄位")
+	}
+	_, ok = rawRule["validation"]
+	if !ok {
+		return fmt.Errorf("array_item_field 規則必須包含 validation 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("array_item_field 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validatePatternMatchRule 驗證 pattern_match 規則
+func validatePatternMatchRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("pattern_match 規則必須包含 path 欄位")
+	}
+	pattern, ok := rawRule["pattern"].(string)
+	if !ok || pattern == "" {
+		return fmt.Errorf("pattern_match 規則必須包含 pattern 欄位")
+	}
+	// 驗證正則表達式是否有效
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("pattern 正則表達式無效: %w", err)
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("pattern_match 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateArrayNoDuplicatesRule 驗證 array_no_duplicates 規則
+func validateArrayNoDuplicatesRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("array_no_duplicates 規則必須包含 path 欄位")
+	}
+	field, ok := rawRule["field"].(string)
+	if !ok || field == "" {
+		return fmt.Errorf("array_no_duplicates 規則必須包含 field 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("array_no_duplicates 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateArrayNoDuplicatesCombineRule 驗證 array_no_duplicates_combine 規則
+func validateArrayNoDuplicatesCombineRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("array_no_duplicates_combine 規則必須包含 path 欄位")
+	}
+	fields, ok := rawRule["fields"].([]interface{})
+	if !ok || len(fields) == 0 {
+		return fmt.Errorf("array_no_duplicates_combine 規則必須包含非空的 fields 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("array_no_duplicates_combine 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateHashedValueCheckRule 驗證 hashed_value_check 規則
+func validateHashedValueCheckRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("hashed_value_check 規則必須包含 path 欄位")
+	}
+	hashAlgorithm, ok := rawRule["hash_algorithm"].(string)
+	if !ok || hashAlgorithm == "" {
+		return fmt.Errorf("hashed_value_check 規則必須包含 hash_algorithm 欄位")
+	}
+	// 驗證 hash_algorithm 是否合法
+	validAlgos := []string{"sha1", "sha256", "sha512", "md5"}
+	valid := false
+	for _, algo := range validAlgos {
+		if strings.ToLower(hashAlgorithm) == algo {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("hash_algorithm 必須是以下之一: %v", validAlgos)
+	}
+	mode, ok := rawRule["mode"].(string)
+	if !ok || mode == "" {
+		return fmt.Errorf("hashed_value_check 規則必須包含 mode 欄位")
+	}
+	if mode != "forbidden" && mode != "allowed" {
+		return fmt.Errorf("mode 必須是 forbidden 或 allowed")
+	}
+	hashList, ok := rawRule["hash_list"].([]interface{})
+	if !ok || len(hashList) == 0 {
+		return fmt.Errorf("hashed_value_check 規則必須包含非空的 hash_list 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("hashed_value_check 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateContainsKeywordsRule 驗證 contains_keywords 規則
+func validateContainsKeywordsRule(rawRule map[string]interface{}) error {
+	path, ok := rawRule["path"].(string)
+	if !ok || path == "" {
+		return fmt.Errorf("contains_keywords 規則必須包含 path 欄位")
+	}
+	mode, ok := rawRule["mode"].(string)
+	if !ok || mode == "" {
+		return fmt.Errorf("contains_keywords 規則必須包含 mode 欄位")
+	}
+	if mode != "forbidden" && mode != "required" {
+		return fmt.Errorf("mode 必須是 forbidden 或 required")
+	}
+	keywords, ok := rawRule["keywords"].([]interface{})
+	if !ok || len(keywords) == 0 {
+		return fmt.Errorf("contains_keywords 規則必須包含非空的 keywords 欄位")
+	}
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("contains_keywords 規則必須包含 message 欄位")
+	}
+	return nil
+}
+
+// validateNoTrailingWhitespaceRule 驗證 no_trailing_whitespace 規則
+func validateNoTrailingWhitespaceRule(rawRule map[string]interface{}) error {
+	message, ok := rawRule["message"].(string)
+	if !ok || message == "" {
+		return fmt.Errorf("no_trailing_whitespace 規則必須包含 message 欄位")
+	}
 	return nil
 }
 

@@ -11,7 +11,8 @@
       "Bash(/tmp/validate-project.sh)",
       "Bash(echo:*)",
       "Bash([ -f validator ])",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "Bash(./main:*)"
     ],
     "deny": [],
     "ask": []

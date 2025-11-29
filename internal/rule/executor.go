@@ -48,12 +48,6 @@ func (e *Executor) Execute(rule *ValidationRule, filePath string) []*ValidationR
 		return e.executeArrayNoDuplicates(rule, filePath)
 	case RuleTypeArrayNoDuplicatesCombine:
 		return e.executeArrayNoDuplicatesCombine(rule, filePath)
-	case RuleTypeNestedArrayNoDuplicates:
-		return e.executeNestedArrayNoDuplicates(rule, filePath)
-	case RuleTypeNestedArrayItemRequiredFields:
-		return e.executeNestedArrayItemRequiredFields(rule, filePath)
-	case RuleTypeNestedArrayItemField:
-		return e.executeNestedArrayItemField(rule, filePath)
 	case RuleTypeHashedValueCheck:
 		return e.executeHashedValueCheck(rule, filePath)
 	case RuleTypeContainsKeywords:
@@ -75,12 +69,20 @@ func (e *Executor) Execute(rule *ValidationRule, filePath string) []*ValidationR
 }
 
 // executeRequiredField 執行必要欄位檢查
+// 支援萬用字元，例如 routes[*].path 會檢查每個 routes 項目是否都有 path 欄位
 func (e *Executor) executeRequiredField(rule *ValidationRule, filePath string) []*ValidationResult {
 	var ruleDetail RequiredFieldRule
 	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
 		return makeErrorResult(rule, filePath, "", err.Error())
 	}
 
+	// 檢查是否包含萬用字元
+	if strings.Contains(ruleDetail.Path, "[*]") {
+		// 展開萬用字元路徑，檢查每個路徑是否存在
+		return e.checkRequiredFieldsWithWildcard(ruleDetail.Path, rule, filePath, ruleDetail.Message)
+	}
+
+	// 單一路徑檢查
 	if !e.parser.HasField(ruleDetail.Path) {
 		return []*ValidationResult{
 			{
@@ -95,6 +97,86 @@ func (e *Executor) executeRequiredField(rule *ValidationRule, filePath string) [
 	}
 
 	return nil
+}
+
+// checkRequiredFieldsWithWildcard 檢查萬用字元路徑中的必要欄位
+// 例如: routes[*].path 會展開並檢查 routes[0].path, routes[1].path, ...
+func (e *Executor) checkRequiredFieldsWithWildcard(path string, rule *ValidationRule, filePath, message string) []*ValidationResult {
+	// 分析路徑，找出萬用字元的位置
+	// 例如: routes[*].middlewares[*].name -> 需要處理兩層萬用字元
+	parts := strings.Split(path, ".")
+
+	// 找到第一個包含 [*] 的部分
+	var parentPath string
+	var fieldName string
+	var remainingPath string
+
+	for i, part := range parts {
+		if strings.Contains(part, "[*]") {
+			// 找到萬用字元
+			if i > 0 {
+				parentPath = strings.Join(parts[:i], ".")
+			}
+			fieldName = strings.TrimSuffix(part, "[*]")
+			if i < len(parts)-1 {
+				remainingPath = strings.Join(parts[i+1:], ".")
+			}
+			break
+		}
+	}
+
+	// 獲取父陣列
+	var parentArray []interface{}
+	var exists bool
+
+	if parentPath == "" {
+		// 萬用字元在根層級，如 routes[*]
+		parentArray, exists = e.parser.GetArray(fieldName)
+	} else {
+		// 萬用字元在嵌套路徑中，如 apiconfig.routes[*]
+		fullArrayPath := parentPath + "." + fieldName
+		parentArray, exists = e.parser.GetArray(fullArrayPath)
+	}
+
+	if !exists {
+		// 父陣列不存在，返回 nil（不算錯誤）
+		return nil
+	}
+
+	var results []*ValidationResult
+
+	// 檢查每個陣列項目
+	for i := range parentArray {
+		var checkPath string
+		if parentPath == "" {
+			checkPath = fmt.Sprintf("%s[%d]", fieldName, i)
+		} else {
+			checkPath = fmt.Sprintf("%s.%s[%d]", parentPath, fieldName, i)
+		}
+
+		if remainingPath != "" {
+			checkPath = checkPath + "." + remainingPath
+		}
+
+		// 遞迴檢查（處理多層萬用字元的情況）
+		if strings.Contains(checkPath, "[*]") {
+			results = append(results, e.checkRequiredFieldsWithWildcard(checkPath, rule, filePath, message)...)
+		} else {
+			// 檢查該路徑是否存在
+			if !e.parser.HasField(checkPath) {
+				results = append(results, &ValidationResult{
+					File:     filePath,
+					RuleID:   rule.ID,
+					RuleName: rule.Name,
+					Severity: rule.Severity,
+					Message:  message,
+					Path:     checkPath,
+				})
+			}
+		}
+	}
+
+	return results
 }
 
 // executeRequiredFields 執行多個必要欄位檢查
@@ -138,61 +220,85 @@ func (e *Executor) executeRequiredFields(rule *ValidationRule, filePath string) 
 }
 
 // executeFieldType 執行欄位類型檢查
+// 支援萬用字元，例如 routes[*].timeout 會檢查每個 routes 項目的 timeout 類型
 func (e *Executor) executeFieldType(rule *ValidationRule, filePath string) []*ValidationResult {
 	var ruleDetail FieldTypeRule
 	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
 		return makeErrorResult(rule, filePath, "", err.Error())
 	}
 
-	if !e.parser.HasField(ruleDetail.Path) {
-		return nil // 欄位不存在，不檢查類型
-	}
-
-	actualType := e.parser.GetType(ruleDetail.Path)
 	expectedType := string(ruleDetail.ExpectedType)
 
-	if actualType != expectedType {
-		return []*ValidationResult{
-			{
-				File:     filePath,
-				RuleID:   rule.ID,
-				RuleName: rule.Name,
-				Severity: rule.Severity,
-				Message:  ruleDetail.Message,
-				Path:     ruleDetail.Path,
-			},
+	return e.processPathWithWildcard(ruleDetail.Path, func(actualPath string, value interface{}) *ValidationResult {
+		// 檢查類型
+		var actualType string
+		switch value.(type) {
+		case string:
+			actualType = "string"
+		case int, float64:
+			actualType = "number"
+		case bool:
+			actualType = "boolean"
+		case []interface{}:
+			actualType = "array"
+		case map[string]interface{}, map[interface{}]interface{}:
+			actualType = "object"
+		default:
+			actualType = "unknown"
 		}
-	}
 
-	return nil
+		if actualType != expectedType {
+			return &ValidationResult{
+				File:          filePath,
+				RuleID:        rule.ID,
+				RuleName:      rule.Name,
+				Severity:      rule.Severity,
+				Message:       ruleDetail.Message,
+				Path:          actualPath,
+				ActualValue:   actualType,
+				ExpectedValue: expectedType,
+			}
+		}
+		return nil
+	})
 }
 
 // executeValueRange 執行數值範圍檢查
+// 支援萬用字元，例如 routes[*].timeout 會檢查每個 routes 項目的 timeout 範圍
 func (e *Executor) executeValueRange(rule *ValidationRule, filePath string) []*ValidationResult {
 	var ruleDetail ValueRangeRule
 	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
 		return makeErrorResult(rule, filePath, "", err.Error())
 	}
 
-	value, exists := e.parser.GetNumber(ruleDetail.Path)
-	if !exists {
-		return nil // 欄位不存在或不是數字，不檢查範圍
-	}
-
-	if value < ruleDetail.Min || value > ruleDetail.Max {
-		return []*ValidationResult{
-			{
-				File:     filePath,
-				RuleID:   rule.ID,
-				RuleName: rule.Name,
-				Severity: rule.Severity,
-				Message:  ruleDetail.Message,
-				Path:     ruleDetail.Path,
-			},
+	return e.processPathWithWildcard(ruleDetail.Path, func(actualPath string, value interface{}) *ValidationResult {
+		// 轉換為數字
+		var numValue float64
+		switch v := value.(type) {
+		case int:
+			numValue = float64(v)
+		case float64:
+			numValue = v
+		default:
+			// 不是數字，跳過檢查
+			return nil
 		}
-	}
 
-	return nil
+		// 檢查範圍
+		if numValue < ruleDetail.Min || numValue > ruleDetail.Max {
+			return &ValidationResult{
+				File:          filePath,
+				RuleID:        rule.ID,
+				RuleName:      rule.Name,
+				Severity:      rule.Severity,
+				Message:       ruleDetail.Message,
+				Path:          actualPath,
+				ActualValue:   fmt.Sprintf("%.0f", numValue),
+				ExpectedValue: fmt.Sprintf("%.0f - %.0f", ruleDetail.Min, ruleDetail.Max),
+			}
+		}
+		return nil
+	})
 }
 
 // executeArrayItemRequiredFields 執行陣列項目必要欄位檢查
@@ -296,12 +402,85 @@ func (e *Executor) executeArrayItemRequiredFields(rule *ValidationRule, filePath
 }
 
 // executeArrayItemField 執行陣列項目欄位驗證
+// 支援萬用字元，例如 routes[*].middlewares 會檢查所有 route 的 middlewares
 func (e *Executor) executeArrayItemField(rule *ValidationRule, filePath string) []*ValidationResult {
 	var ruleDetail ArrayItemFieldRule
 	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
 		return makeErrorResult(rule, filePath, "", err.Error())
 	}
 
+	// 檢查路徑是否包含萬用字元
+	if strings.Contains(ruleDetail.Path, "[*]") {
+		// 展開萬用字元路徑
+		paths := e.parser.ExpandWildcardPath(ruleDetail.Path)
+		if paths == nil || len(paths) == 0 {
+			return nil
+		}
+
+		var results []*ValidationResult
+		for _, pathInfo := range paths {
+			// pathInfo.Value 應該是一個陣列
+			arr, ok := pathInfo.Value.([]interface{})
+			if !ok {
+				continue
+			}
+
+			// 檢查這個陣列的每個項目
+			for i, item := range arr {
+				itemMap, ok := item.(map[string]interface{})
+				if !ok {
+					// 嘗試轉換 map[interface{}]interface{}
+					if m, ok2 := item.(map[interface{}]interface{}); ok2 {
+						itemMap = make(map[string]interface{})
+						for k, v := range m {
+							if strKey, ok3 := k.(string); ok3 {
+								itemMap[strKey] = v
+							}
+						}
+					} else {
+						continue
+					}
+				}
+
+				fieldValue, exists := itemMap[ruleDetail.Field]
+				if !exists {
+					continue
+				}
+
+				// 目前只支援 enum 驗證
+				if ruleDetail.Validation.Type == "enum" {
+					fieldStr, ok := fieldValue.(string)
+					if !ok {
+						continue
+					}
+
+					valid := false
+					for _, allowed := range ruleDetail.Validation.AllowedValues {
+						if fieldStr == allowed {
+							valid = true
+							break
+						}
+					}
+
+					if !valid {
+						results = append(results, &ValidationResult{
+							File:          filePath,
+							RuleID:        rule.ID,
+							RuleName:      rule.Name,
+							Severity:      rule.Severity,
+							Message:       ruleDetail.Message,
+							Path:          fmt.Sprintf("%s[%d].%s", pathInfo.Path, i, ruleDetail.Field),
+							ActualValue:   fieldStr,
+							ExpectedValue: fmt.Sprintf("one of [%s]", strings.Join(ruleDetail.Validation.AllowedValues, ", ")),
+						})
+					}
+				}
+			}
+		}
+		return results
+	}
+
+	// 原有的單一路徑邏輯
 	arr, exists := e.parser.GetArray(ruleDetail.Path)
 	if !exists {
 		return nil // 陣列不存在，不檢查
@@ -346,12 +525,14 @@ func (e *Executor) executeArrayItemField(rule *ValidationRule, filePath string) 
 
 			if !valid {
 				results = append(results, &ValidationResult{
-					File:     filePath,
-					RuleID:   rule.ID,
-					RuleName: rule.Name,
-					Severity: rule.Severity,
-					Message:  ruleDetail.Message,
-					Path:     fmt.Sprintf("%s[%d].%s", ruleDetail.Path, i, ruleDetail.Field),
+					File:          filePath,
+					RuleID:        rule.ID,
+					RuleName:      rule.Name,
+					Severity:      rule.Severity,
+					Message:       ruleDetail.Message,
+					Path:          fmt.Sprintf("%s[%d].%s", ruleDetail.Path, i, ruleDetail.Field),
+					ActualValue:   fieldStr,
+					ExpectedValue: fmt.Sprintf("one of [%s]", strings.Join(ruleDetail.Validation.AllowedValues, ", ")),
 				})
 			}
 		}
@@ -361,36 +542,42 @@ func (e *Executor) executeArrayItemField(rule *ValidationRule, filePath string) 
 }
 
 // executePatternMatch 執行正則表達式驗證
+// 支援萬用字元，例如 routes[*].path 會檢查每個 routes 項目的 path 格式
 func (e *Executor) executePatternMatch(rule *ValidationRule, filePath string) []*ValidationResult {
 	var ruleDetail PatternMatchRule
 	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
 		return makeErrorResult(rule, filePath, "", err.Error())
 	}
 
-	value, exists := e.parser.GetString(ruleDetail.Path)
-	if !exists {
-		return nil // 欄位不存在或不是字串，不檢查
-	}
-
-	matched, err := regexp.MatchString(ruleDetail.Pattern, value)
+	// 預先編譯正則表達式
+	re, err := regexp.Compile(ruleDetail.Pattern)
 	if err != nil {
 		return makeErrorResult(rule, filePath, ruleDetail.Path, fmt.Sprintf("正則表達式錯誤: %v", err))
 	}
 
-	if !matched {
-		return []*ValidationResult{
-			{
-				File:     filePath,
-				RuleID:   rule.ID,
-				RuleName: rule.Name,
-				Severity: rule.Severity,
-				Message:  ruleDetail.Message,
-				Path:     ruleDetail.Path,
-			},
+	return e.processPathWithWildcard(ruleDetail.Path, func(actualPath string, value interface{}) *ValidationResult {
+		// 轉換為字串
+		strValue, ok := value.(string)
+		if !ok {
+			// 不是字串，跳過檢查
+			return nil
 		}
-	}
 
-	return nil
+		// 檢查是否匹配
+		if !re.MatchString(strValue) {
+			return &ValidationResult{
+				File:          filePath,
+				RuleID:        rule.ID,
+				RuleName:      rule.Name,
+				Severity:      rule.Severity,
+				Message:       ruleDetail.Message,
+				Path:          actualPath,
+				ActualValue:   strValue,
+				ExpectedValue: fmt.Sprintf("pattern: %s", ruleDetail.Pattern),
+			}
+		}
+		return nil
+	})
 }
 
 // unmarshalRule 將 RawRule 解析為具體的規則結構
@@ -409,12 +596,53 @@ func unmarshalRule(rawRule map[string]interface{}, target interface{}) error {
 }
 
 // executeArrayNoDuplicates 執行陣列欄位不可重複檢查
+// 支援萬用字元，例如 routes[*].middlewares 會檢查每個 route 的 middlewares 內部是否重複
 func (e *Executor) executeArrayNoDuplicates(rule *ValidationRule, filePath string) []*ValidationResult {
 	var ruleDetail ArrayNoDuplicatesRule
 	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
 		return makeErrorResult(rule, filePath, "", err.Error())
 	}
 
+	// 檢查路徑是否包含萬用字元
+	if strings.Contains(ruleDetail.Path, "[*]") {
+		// 展開萬用字元路徑
+		paths := e.parser.ExpandWildcardPath(ruleDetail.Path)
+		if paths == nil || len(paths) == 0 {
+			return nil
+		}
+
+		var results []*ValidationResult
+		for _, pathInfo := range paths {
+			// pathInfo.Value 應該是一個陣列
+			_, ok := pathInfo.Value.([]interface{})
+			if !ok {
+				continue
+			}
+
+			// 檢查這個陣列內部的重複
+			duplicates, err := e.parser.CheckArrayDuplicates(pathInfo.Path, ruleDetail.Field)
+			if err != nil {
+				continue
+			}
+
+			// 為每個重複的索引建立一個錯誤
+			for _, dup := range duplicates {
+				for _, idx := range dup.Indices {
+					results = append(results, &ValidationResult{
+						File:     filePath,
+						RuleID:   rule.ID,
+						RuleName: rule.Name,
+						Severity: rule.Severity,
+						Message:  fmt.Sprintf("%s (重複值: %s)", ruleDetail.Message, dup.Value),
+						Path:     fmt.Sprintf("%s[%d].%s", pathInfo.Path, idx, ruleDetail.Field),
+					})
+				}
+			}
+		}
+		return results
+	}
+
+	// 原有的單一路徑邏輯
 	duplicates, err := e.parser.CheckArrayDuplicates(ruleDetail.Path, ruleDetail.Field)
 	if err != nil {
 		// 如果陣列不存在,不回報錯誤
@@ -470,215 +698,6 @@ func (e *Executor) executeArrayNoDuplicatesCombine(rule *ValidationRule, filePat
 	return results
 }
 
-// executeNestedArrayNoDuplicates 執行巢狀陣列欄位不可重複檢查
-// 檢查父陣列中每個項目的子陣列是否有重複
-func (e *Executor) executeNestedArrayNoDuplicates(rule *ValidationRule, filePath string) []*ValidationResult {
-	var ruleDetail NestedArrayNoDuplicatesRule
-	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
-		return makeErrorResult(rule, filePath, "", err.Error())
-	}
-
-	// 取得父陣列
-	parentArr, exists := e.parser.GetArray(ruleDetail.ParentPath)
-	if !exists {
-		return nil // 父陣列不存在,不檢查
-	}
-
-	var results []*ValidationResult
-
-	// 遍歷父陣列的每個項目
-	for parentIdx := range parentArr {
-		// 構建子陣列的完整路徑，如 "apiconfig.routes[0].middlewares"
-		childArrayPath := fmt.Sprintf("%s[%d].%s", ruleDetail.ParentPath, parentIdx, ruleDetail.ChildPath)
-
-		var duplicates []*parser.DuplicateInfo
-		var err error
-
-		// 根據是單一欄位還是多欄位組合來檢查重複
-		if ruleDetail.Field != "" {
-			// 單一欄位檢查
-			duplicates, err = e.parser.CheckArrayDuplicates(childArrayPath, ruleDetail.Field)
-		} else if len(ruleDetail.Fields) > 0 {
-			// 多欄位組合檢查
-			duplicates, err = e.parser.CheckArrayMultiFieldDuplicates(childArrayPath, ruleDetail.Fields)
-		} else {
-			return makeErrorResult(rule, filePath, "", "必須指定 field 或 fields")
-		}
-
-		if err != nil {
-			// 子陣列不存在或其他錯誤,繼續檢查下一個
-			continue
-		}
-
-		// 將找到的重複項目加入結果
-		for _, dup := range duplicates {
-			for _, childIdx := range dup.Indices {
-				var path string
-				if ruleDetail.Field != "" {
-					path = fmt.Sprintf("%s[%d].%s[%d].%s", ruleDetail.ParentPath, parentIdx, ruleDetail.ChildPath, childIdx, ruleDetail.Field)
-				} else {
-					path = fmt.Sprintf("%s[%d].%s[%d]", ruleDetail.ParentPath, parentIdx, ruleDetail.ChildPath, childIdx)
-				}
-
-				results = append(results, &ValidationResult{
-					File:     filePath,
-					RuleID:   rule.ID,
-					RuleName: rule.Name,
-					Severity: rule.Severity,
-					Message:  fmt.Sprintf("%s (重複值: %s)", ruleDetail.Message, dup.Value),
-					Path:     path,
-				})
-			}
-		}
-	}
-
-	return results
-}
-
-// executeNestedArrayItemRequiredFields 執行巢狀陣列項目必要欄位檢查
-// 檢查父陣列中每個項目的子陣列項目是否有必要欄位
-func (e *Executor) executeNestedArrayItemRequiredFields(rule *ValidationRule, filePath string) []*ValidationResult {
-	var ruleDetail NestedArrayItemRequiredFieldsRule
-	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
-		return makeErrorResult(rule, filePath, "", err.Error())
-	}
-
-	// 取得父陣列
-	parentArr, exists := e.parser.GetArray(ruleDetail.ParentPath)
-	if !exists {
-		return nil // 父陣列不存在,不檢查
-	}
-
-	var results []*ValidationResult
-
-	// 遍歷父陣列的每個項目
-	for parentIdx := range parentArr {
-		// 構建子陣列的完整路徑
-		childArrayPath := fmt.Sprintf("%s[%d].%s", ruleDetail.ParentPath, parentIdx, ruleDetail.ChildPath)
-
-		// 取得子陣列
-		childArr, exists := e.parser.GetArray(childArrayPath)
-		if !exists {
-			continue // 子陣列不存在,繼續檢查下一個
-		}
-
-		// 檢查子陣列的每個項目
-		for childIdx, item := range childArr {
-			itemMap, ok := item.(map[string]interface{})
-			if !ok {
-				// 嘗試轉換 map[interface{}]interface{}
-				if m, ok2 := item.(map[interface{}]interface{}); ok2 {
-					itemMap = make(map[string]interface{})
-					for k, v := range m {
-						if strKey, ok3 := k.(string); ok3 {
-							itemMap[strKey] = v
-						}
-					}
-				} else {
-					continue
-				}
-			}
-
-			// 檢查每個必要欄位
-			for _, field := range ruleDetail.RequiredFields {
-				if _, exists := itemMap[field]; !exists {
-					results = append(results, &ValidationResult{
-						File:     filePath,
-						RuleID:   rule.ID,
-						RuleName: rule.Name,
-						Severity: rule.Severity,
-						Message:  ruleDetail.Message,
-						Path:     fmt.Sprintf("%s[%d].%s[%d].%s", ruleDetail.ParentPath, parentIdx, ruleDetail.ChildPath, childIdx, field),
-					})
-				}
-			}
-		}
-	}
-
-	return results
-}
-
-// executeNestedArrayItemField 執行巢狀陣列項目欄位驗證
-// 驗證父陣列中每個項目的子陣列項目的欄位值
-func (e *Executor) executeNestedArrayItemField(rule *ValidationRule, filePath string) []*ValidationResult {
-	var ruleDetail NestedArrayItemFieldRule
-	if err := unmarshalRule(rule.Rule.RawRule, &ruleDetail); err != nil {
-		return makeErrorResult(rule, filePath, "", err.Error())
-	}
-
-	// 取得父陣列
-	parentArr, exists := e.parser.GetArray(ruleDetail.ParentPath)
-	if !exists {
-		return nil // 父陣列不存在,不檢查
-	}
-
-	var results []*ValidationResult
-
-	// 遍歷父陣列的每個項目
-	for parentIdx := range parentArr {
-		// 構建子陣列的完整路徑
-		childArrayPath := fmt.Sprintf("%s[%d].%s", ruleDetail.ParentPath, parentIdx, ruleDetail.ChildPath)
-
-		// 取得子陣列
-		childArr, exists := e.parser.GetArray(childArrayPath)
-		if !exists {
-			continue // 子陣列不存在,繼續檢查下一個
-		}
-
-		// 檢查子陣列的每個項目
-		for childIdx, item := range childArr {
-			itemMap, ok := item.(map[string]interface{})
-			if !ok {
-				// 嘗試轉換 map[interface{}]interface{}
-				if m, ok2 := item.(map[interface{}]interface{}); ok2 {
-					itemMap = make(map[string]interface{})
-					for k, v := range m {
-						if strKey, ok3 := k.(string); ok3 {
-							itemMap[strKey] = v
-						}
-					}
-				} else {
-					continue
-				}
-			}
-
-			fieldValue, exists := itemMap[ruleDetail.Field]
-			if !exists {
-				continue
-			}
-
-			// 目前只支援 enum 驗證
-			if ruleDetail.Validation.Type == "enum" {
-				fieldStr, ok := fieldValue.(string)
-				if !ok {
-					continue
-				}
-
-				valid := false
-				for _, allowed := range ruleDetail.Validation.AllowedValues {
-					if fieldStr == allowed {
-						valid = true
-						break
-					}
-				}
-
-				if !valid {
-					results = append(results, &ValidationResult{
-						File:     filePath,
-						RuleID:   rule.ID,
-						RuleName: rule.Name,
-						Severity: rule.Severity,
-						Message:  ruleDetail.Message,
-						Path:     fmt.Sprintf("%s[%d].%s[%d].%s", ruleDetail.ParentPath, parentIdx, ruleDetail.ChildPath, childIdx, ruleDetail.Field),
-					})
-				}
-			}
-		}
-	}
-
-	return results
-}
-
 // makeErrorResult 建立錯誤結果
 func makeErrorResult(rule *ValidationRule, filePath, path, message string) []*ValidationResult {
 	return []*ValidationResult{
@@ -691,6 +710,40 @@ func makeErrorResult(rule *ValidationRule, filePath, path, message string) []*Va
 			Path:     path,
 		},
 	}
+}
+
+// processPathWithWildcard 通用的通配符處理函數
+// 如果 path 包含 [*]，展開所有路徑並對每個路徑執行 checkFunc
+// 否則直接對單個路徑執行 checkFunc
+func (e *Executor) processPathWithWildcard(
+	path string,
+	checkFunc func(actualPath string, value interface{}) *ValidationResult,
+) []*ValidationResult {
+	if strings.Contains(path, "[*]") {
+		// 展開通配符路徑
+		paths := e.parser.ExpandWildcardPath(path)
+		if paths == nil || len(paths) == 0 {
+			return nil
+		}
+
+		var results []*ValidationResult
+		for _, pathInfo := range paths {
+			if result := checkFunc(pathInfo.Path, pathInfo.Value); result != nil {
+				results = append(results, result)
+			}
+		}
+		return results
+	}
+
+	// 單一路徑
+	value, exists := e.parser.GetValue(path)
+	if !exists {
+		return nil
+	}
+	if result := checkFunc(path, value); result != nil {
+		return []*ValidationResult{result}
+	}
+	return nil
 }
 
 // executeHashedValueCheck 執行雜湊值檢查

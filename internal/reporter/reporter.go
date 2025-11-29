@@ -57,6 +57,12 @@ func (r *Reporter) PrintConsole(ruleCount int) {
 			if result.Path != "" {
 				fmt.Printf("     路徑: %s\n", result.Path)
 			}
+			if result.ActualValue != "" {
+				fmt.Printf("     實際值: %s\n", result.ActualValue)
+			}
+			if result.ExpectedValue != "" {
+				fmt.Printf("     期望值: %s\n", result.ExpectedValue)
+			}
 		}
 		fmt.Println()
 	}
